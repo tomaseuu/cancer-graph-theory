@@ -47,10 +47,15 @@ Each protein is treated as a **node**, and every interaction between two protein
 For full explanations, figures, and math steps, see:  
 📄 [Cancer and Graph Theory.pdf](https://github.com/user-attachments/files/22854158/Cancer.and.Graph.Theory.pdf)
 
-
-
 ---
 
 ## Author
 **Thomas Le**  
 Student in Computer Science & Bioinformatics
+
+---
+### ⚠️ Note
+By the way, this project takes a while to run since it performs **thousands of random walk simulations** and **graph randomization steps** (each with up to 100,000 iterations). If you just want to test it quickly, you can lower the sample size and step count in the code:
+```python
+samples = 200        # instead of 1000
+num_steps = 10000    # instead of 100000
