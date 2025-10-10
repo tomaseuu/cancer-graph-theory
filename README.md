@@ -45,7 +45,8 @@ Each protein is treated as a **node**, and every interaction between two protein
 
 ## Project Report
 For full explanations, figures, and math steps, see:  
-📄 [Cancer and Graph Theory.pdf](https://github.com/user-attachments/files/22854132/Project.3.Cancer.and.Graph.Theory.pdf)
+📄 [Cancer and Graph Theory.pdf](https://github.com/user-attachments/files/22854158/Cancer.and.Graph.Theory.pdf)
+
 
 
 ---
