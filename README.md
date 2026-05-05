@@ -73,3 +73,36 @@ Run the current refactored pipeline with:
 ```bash
 python run_pipeline.py
 ```
+
+## Running the API
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Start the API:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Open docs:
+
+```text
+http://localhost:8000/docs
+```
+
+Example request:
+
+`POST /analyze`
+
+```json
+{
+  "restart_probability": 0.3,
+  "num_steps": 10000,
+  "num_random_sets": 200,
+  "top_n": 30
+}
+```

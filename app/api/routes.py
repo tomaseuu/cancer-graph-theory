@@ -1,0 +1,183 @@
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, HTTPException
+
+from app.api.schemas import (
+    AnalysisResultResponse,
+    AnalyzeRequest,
+    AnalyzeResponse,
+    CandidateGene,
+    GraphSummaryResponse,
+)
+from app.core.gene_ranking import rank_candidate_genes
+from app.core.graph_loader import load_graph_and_oncogenes
+from app.core.rwr import calculate_rwr_p_value, calculate_rwr_proximity, random_rwr_distribution
+from app.utils.helpers import set_random_seed
+
+
+router = APIRouter()
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+DATA_DIR = BASE_DIR / "data"
+ONCOGENE_FILE = DATA_DIR / "onco_genes.txt"
+INTERACTIONS_FILE = DATA_DIR / "interacting_proteins.txt"
+
+ANALYSIS_RESULTS: dict[str, dict] = {}
+
+
+def _load_graph_data():
+    return load_graph_and_oncogenes(ONCOGENE_FILE, INTERACTIONS_FILE)
+
+
+def _dump_model(model):
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
+
+
+def _normalize_seed_genes(seed_genes: list[str] | None, default_genes: list[str]) -> list[str]:
+    if not seed_genes:
+        return default_genes
+    return [gene.strip().upper() for gene in seed_genes if gene.strip()]
+
+
+def run_analysis(run_id: str, request: AnalyzeRequest) -> AnalysisResultResponse:
+    set_random_seed(42)
+
+    graph, default_oncogenes = _load_graph_data()
+    seed_genes = _normalize_seed_genes(request.seed_genes, default_oncogenes)
+    seed_genes_in_graph = [gene for gene in seed_genes if gene in graph.nodes()]
+
+    if not seed_genes_in_graph:
+        raise HTTPException(status_code=400, detail="None of the provided seed genes were found in the graph.")
+
+    if len(seed_genes_in_graph) < 2:
+        raise HTTPException(status_code=400, detail="At least two seed genes found in the graph are required.")
+
+    rwr_score = calculate_rwr_proximity(
+        graph,
+        seed_genes,
+        restart_probability=request.restart_probability,
+        num_steps=request.num_steps,
+    )
+    random_scores = random_rwr_distribution(
+        graph,
+        seed_genes,
+        num_samples=request.num_random_sets,
+        restart_probability=request.restart_probability,
+        num_steps=request.num_steps,
+    )
+    p_value = calculate_rwr_p_value(rwr_score, random_scores)
+
+    ranked_genes = rank_candidate_genes(
+        graph,
+        seed_genes,
+        restart_probability=request.restart_probability,
+        num_steps=request.num_steps,
+        top_n=request.top_n,
+    )
+    top_genes = [
+        CandidateGene(gene_name=gene_name, score=score, rank=index)
+        for index, (gene_name, score) in enumerate(ranked_genes, start=1)
+    ]
+
+    return AnalysisResultResponse(
+        run_id=run_id,
+        status="completed",
+        seed_genes=seed_genes_in_graph,
+        rwr_score=rwr_score,
+        p_value=p_value,
+        top_genes=top_genes,
+        message="Analysis completed successfully",
+    )
+
+
+@router.get("/")
+def root():
+    return {"message": "OncoGraph API is running"}
+
+
+@router.get("/health")
+def health():
+    return {"status": "healthy"}
+
+
+@router.get("/graph/summary", response_model=GraphSummaryResponse)
+def graph_summary():
+    graph, oncogenes = _load_graph_data()
+    found_genes = [gene for gene in oncogenes if gene in graph.nodes()]
+    missing_genes = [gene for gene in oncogenes if gene not in graph.nodes()]
+
+    return GraphSummaryResponse(
+        num_nodes=graph.number_of_nodes(),
+        num_edges=graph.number_of_edges(),
+        num_oncogenes=len(oncogenes),
+        oncogenes_found_in_graph=found_genes,
+        oncogenes_missing_from_graph=missing_genes,
+    )
+
+
+@router.post("/analyze", response_model=AnalyzeResponse)
+def analyze(request: AnalyzeRequest):
+    run_id = str(uuid4())
+
+    running_result = AnalysisResultResponse(
+        run_id=run_id,
+        status="running",
+        seed_genes=[],
+        rwr_score=None,
+        p_value=None,
+        top_genes=[],
+        message="Analysis is running",
+    )
+    ANALYSIS_RESULTS[run_id] = _dump_model(running_result)
+
+    try:
+        result = run_analysis(run_id, request)
+        ANALYSIS_RESULTS[run_id] = _dump_model(result)
+        return AnalyzeResponse(
+            run_id=run_id,
+            status="completed",
+            message="Analysis completed successfully",
+        )
+    except HTTPException as exc:
+        failed_result = AnalysisResultResponse(
+            run_id=run_id,
+            status="failed",
+            seed_genes=[],
+            rwr_score=None,
+            p_value=None,
+            top_genes=[],
+            message=str(exc.detail),
+        )
+        ANALYSIS_RESULTS[run_id] = _dump_model(failed_result)
+        raise exc
+    except Exception as exc:
+        failed_result = AnalysisResultResponse(
+            run_id=run_id,
+            status="failed",
+            seed_genes=[],
+            rwr_score=None,
+            p_value=None,
+            top_genes=[],
+            message=f"Analysis failed: {exc}",
+        )
+        ANALYSIS_RESULTS[run_id] = _dump_model(failed_result)
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}") from exc
+
+
+@router.get("/results/{run_id}", response_model=AnalysisResultResponse)
+def get_results(run_id: str):
+    result = ANALYSIS_RESULTS.get(run_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Run ID not found.")
+    return AnalysisResultResponse(**result)
+
+
+@router.get("/genes/top-candidates/{run_id}", response_model=list[CandidateGene])
+def get_top_candidates(run_id: str):
+    result = ANALYSIS_RESULTS.get(run_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Run ID not found.")
+    return [CandidateGene(**gene) for gene in result.get("top_genes", [])]
