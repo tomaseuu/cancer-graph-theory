@@ -6,6 +6,13 @@ This project was inspired by a 2015 study published in *Nature Genetics* that us
 
 ---
 
+## Current Refactor Status
+- The original analysis has been refactored into modular Python files.
+- The project can still be run with `python run_pipeline.py`.
+- FastAPI, database persistence, Docker, and ML ranking are planned future upgrades.
+
+---
+
 ## Dataset
 - Known kidney cancer oncogenes: `data/onco_genes.txt`  
 - Protein–protein interactions: `data/interacting_proteins.txt`
@@ -59,3 +66,10 @@ By the way, this project takes a while to run since it performs **thousands of r
 ```python
 samples = 200        # instead of 1000
 num_steps = 10000    # instead of 100000
+```
+
+Run the current refactored pipeline with:
+
+```bash
+python run_pipeline.py
+```
