@@ -10,7 +10,7 @@ This project was inspired by a 2015 study published in *Nature Genetics* that us
 - The original analysis has been refactored into modular Python files.
 - The project can still be run with `python run_pipeline.py`.
 - FastAPI and optional database persistence are now available.
-- Docker is a planned future upgrade.
+- Docker support is now available.
 
 ---
 
@@ -192,4 +192,68 @@ curl -X POST http://localhost:8000/analyze \
     "top_n": 10,
     "use_ml_ranking": true
   }'
+```
+
+## Running with Docker
+
+Copy the Docker env example:
+
+```bash
+cp .env.docker.example .env
+```
+
+Build and start:
+
+```bash
+docker compose up --build
+```
+
+Open API docs:
+
+```text
+http://localhost:8000/docs
+```
+
+Test health:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Start analysis:
+
+```bash
+curl -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "restart_probability": 0.3,
+    "num_steps": 1000,
+    "num_random_sets": 20,
+    "top_n": 10,
+    "use_ml_ranking": false
+  }'
+```
+
+Stop containers:
+
+```bash
+docker compose down
+```
+
+Reset local database:
+
+```bash
+docker compose down -v
+```
+
+`.env` is ignored and should not be committed.
+`.env.docker.example` is safe to commit.
+Docker Compose uses local Postgres by default.
+Supabase can still be used locally by replacing `DATABASE_URL` in `.env`.
+
+Local non-Docker mode still works:
+
+```bash
+python3 -m pip install -r requirements.txt
+uvicorn app.main:app --reload
 ```
