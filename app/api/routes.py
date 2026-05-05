@@ -12,7 +12,7 @@ from app.api.schemas import (
     CandidateGene,
     GraphSummaryResponse,
 )
-from app.core.gene_ranking import rank_candidate_genes
+from app.core.gene_ranking import rank_candidate_genes, rank_candidate_genes_with_ml
 from app.core.graph_loader import load_graph_and_oncogenes
 from app.core.rwr import calculate_rwr_p_value, calculate_rwr_proximity, random_rwr_distribution
 from app.db.crud import (
@@ -82,6 +82,20 @@ def _normalize_seed_genes(seed_genes: list[str] | None, default_genes: list[str]
     return [gene.strip().upper() for gene in seed_genes if gene.strip()]
 
 
+def _format_rwr_candidates(ranked_genes):
+    return [
+        _dump_model(
+            CandidateGene(
+                gene_name=gene_name,
+                score=score,
+                rank=index,
+                rwr_score=score,
+            )
+        )
+        for index, (gene_name, score) in enumerate(ranked_genes, start=1)
+    ]
+
+
 def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: list[str]):
     set_random_seed(42)
     if DATABASE_ENABLED:
@@ -114,17 +128,23 @@ def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: li
             )
             p_value = calculate_rwr_p_value(rwr_score, random_scores)
 
-            ranked_genes = rank_candidate_genes(
-                graph,
-                seed_genes,
-                restart_probability=request.restart_probability,
-                num_steps=request.num_steps,
-                top_n=request.top_n,
-            )
-            top_genes = [
-                _dump_model(CandidateGene(gene_name=gene_name, score=score, rank=index))
-                for index, (gene_name, score) in enumerate(ranked_genes, start=1)
-            ]
+            if request.use_ml_ranking:
+                top_genes = rank_candidate_genes_with_ml(
+                    graph,
+                    seed_genes,
+                    restart_probability=request.restart_probability,
+                    num_steps=request.num_steps,
+                    top_n=request.top_n,
+                )
+            else:
+                ranked_genes = rank_candidate_genes(
+                    graph,
+                    seed_genes,
+                    restart_probability=request.restart_probability,
+                    num_steps=request.num_steps,
+                    top_n=request.top_n,
+                )
+                top_genes = _format_rwr_candidates(ranked_genes)
 
             complete_analysis_run(db, run_id, rwr_score, p_value, top_genes)
         except Exception as exc:
@@ -164,17 +184,23 @@ def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: li
         )
         p_value = calculate_rwr_p_value(rwr_score, random_scores)
 
-        ranked_genes = rank_candidate_genes(
-            graph,
-            seed_genes,
-            restart_probability=request.restart_probability,
-            num_steps=request.num_steps,
-            top_n=request.top_n,
-        )
-        top_genes = [
-            _dump_model(CandidateGene(gene_name=gene_name, score=score, rank=index))
-            for index, (gene_name, score) in enumerate(ranked_genes, start=1)
-        ]
+        if request.use_ml_ranking:
+            top_genes = rank_candidate_genes_with_ml(
+                graph,
+                seed_genes,
+                restart_probability=request.restart_probability,
+                num_steps=request.num_steps,
+                top_n=request.top_n,
+            )
+        else:
+            ranked_genes = rank_candidate_genes(
+                graph,
+                seed_genes,
+                restart_probability=request.restart_probability,
+                num_steps=request.num_steps,
+                top_n=request.top_n,
+            )
+            top_genes = _format_rwr_candidates(ranked_genes)
 
         _update_result(
             run_id,

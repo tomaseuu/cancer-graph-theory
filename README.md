@@ -9,7 +9,8 @@ This project was inspired by a 2015 study published in *Nature Genetics* that us
 ## Current Refactor Status
 - The original analysis has been refactored into modular Python files.
 - The project can still be run with `python run_pipeline.py`.
-- FastAPI, database persistence, Docker, and ML ranking are planned future upgrades.
+- FastAPI and optional database persistence are now available.
+- Docker is a planned future upgrade.
 
 ---
 
@@ -103,7 +104,8 @@ Example request:
   "restart_probability": 0.3,
   "num_steps": 10000,
   "num_random_sets": 200,
-  "top_n": 30
+  "top_n": 30,
+  "use_ml_ranking": false
 }
 ```
 
@@ -165,3 +167,29 @@ This makes run IDs survive server restarts.
 Supabase can also be used by setting `DATABASE_URL` to the Supabase Postgres connection string.
 
 Do not commit a real `.env` file.
+
+If you already created Step 4 tables in an existing development database, drop and recreate them or use a fresh database before testing Step 5. `create_all()` will not add the new ML columns to existing tables.
+
+## Graph-Based ML Ranking
+
+The original pipeline uses Random Walk with Restart for candidate ranking.
+Optional ML ranking adds graph features such as PageRank, centrality, shortest-path distance, and oncogene-neighbor count.
+
+A Logistic Regression model is trained using known oncogenes as positive examples and sampled non-oncogenes as negative examples.
+The final score combines normalized RWR score and ML probability.
+
+This is exploratory and educational, not medical diagnosis.
+
+Example ML request:
+
+```bash
+curl -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "restart_probability": 0.3,
+    "num_steps": 1000,
+    "num_random_sets": 20,
+    "top_n": 10,
+    "use_ml_ranking": true
+  }'
+```

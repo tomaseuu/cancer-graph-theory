@@ -7,6 +7,7 @@ class AnalyzeRequest(BaseModel):
     num_steps: int = Field(default=10000, gt=0)
     num_random_sets: int = Field(default=200, gt=0)
     top_n: int = Field(default=30, gt=0)
+    use_ml_ranking: bool = False
 
 
 class AnalyzeResponse(BaseModel):
@@ -27,6 +28,15 @@ class CandidateGene(BaseModel):
     gene_name: str
     score: float
     rank: int
+    rwr_score: float | None = None
+    ml_probability: float | None = None
+    final_score: float | None = None
+    degree: int | None = None
+    pagerank: float | None = None
+    betweenness_centrality: float | None = None
+    closeness_centrality: float | None = None
+    shortest_path_to_nearest_seed: float | None = None
+    oncogene_neighbor_count: int | None = None
 
 
 class AnalysisResultResponse(BaseModel):

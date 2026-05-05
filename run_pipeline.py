@@ -3,7 +3,11 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from app.core.gene_ranking import rank_candidate_genes, save_candidate_genes
+from app.core.gene_ranking import (
+    rank_candidate_genes,
+    rank_candidate_genes_with_ml,
+    save_candidate_genes,
+)
 from app.core.graph_loader import load_graph_and_oncogenes
 from app.core.randomization import run_randomized_graph_rwr_analysis
 from app.core.rwr import calculate_rwr_p_value, calculate_rwr_proximity, random_rwr_distribution
@@ -17,6 +21,7 @@ from app.utils.helpers import ensure_output_dir, set_random_seed
 
 DATA_DIR = Path("data")
 OUTPUT_FILE = Path("outputs/Thomas_Le_onco_predictions.txt")
+USE_ML_RANKING = False
 
 
 def plot_shortest_path_distribution(actual_score, random_scores):
@@ -97,7 +102,10 @@ def main():
     )
 
     print("\nRanking candidate genes...")
-    top_candidates = rank_candidate_genes(graph, oncogenes, top_n=30)
+    if USE_ML_RANKING:
+        top_candidates = rank_candidate_genes_with_ml(graph, oncogenes, top_n=30)
+    else:
+        top_candidates = rank_candidate_genes(graph, oncogenes, top_n=30)
     save_candidate_genes(top_candidates, OUTPUT_FILE)
     print(f"Top 30 novel tumorigenic genes written to {OUTPUT_FILE}")
 
