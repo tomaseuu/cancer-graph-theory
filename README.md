@@ -106,3 +106,40 @@ Example request:
   "top_n": 30
 }
 ```
+
+`POST /analyze` now starts a background analysis and returns immediately.
+Poll `GET /status/{run_id}` or `GET /results/{run_id}` to track progress.
+Top candidate genes are only available after the run status is `completed`.
+
+Example flow:
+
+Start analysis:
+
+```bash
+curl -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "restart_probability": 0.3,
+    "num_steps": 1000,
+    "num_random_sets": 20,
+    "top_n": 10
+  }'
+```
+
+Check status:
+
+```bash
+curl http://localhost:8000/status/YOUR_RUN_ID
+```
+
+Get results:
+
+```bash
+curl http://localhost:8000/results/YOUR_RUN_ID
+```
+
+Get top genes:
+
+```bash
+curl http://localhost:8000/genes/top-candidates/YOUR_RUN_ID
+```

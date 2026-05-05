@@ -1,7 +1,9 @@
+from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from app.api.schemas import (
     AnalysisResultResponse,
@@ -24,6 +26,7 @@ ONCOGENE_FILE = DATA_DIR / "onco_genes.txt"
 INTERACTIONS_FILE = DATA_DIR / "interacting_proteins.txt"
 
 ANALYSIS_RESULTS: dict[str, dict] = {}
+ANALYSIS_RESULTS_LOCK = Lock()
 
 
 def _load_graph_data():
@@ -36,61 +39,91 @@ def _dump_model(model):
     return model.dict()
 
 
+def _utc_now_isoformat():
+    return datetime.utcnow().isoformat()
+
+
+def _set_result(run_id: str, result: dict):
+    with ANALYSIS_RESULTS_LOCK:
+        ANALYSIS_RESULTS[run_id] = result
+
+
+def _update_result(run_id: str, **updates):
+    with ANALYSIS_RESULTS_LOCK:
+        if run_id in ANALYSIS_RESULTS:
+            ANALYSIS_RESULTS[run_id].update(updates)
+
+
+def _get_result(run_id: str):
+    with ANALYSIS_RESULTS_LOCK:
+        result = ANALYSIS_RESULTS.get(run_id)
+        return dict(result) if result is not None else None
+
+
 def _normalize_seed_genes(seed_genes: list[str] | None, default_genes: list[str]) -> list[str]:
     if not seed_genes:
         return default_genes
     return [gene.strip().upper() for gene in seed_genes if gene.strip()]
 
 
-def run_analysis(run_id: str, request: AnalyzeRequest) -> AnalysisResultResponse:
+def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: list[str]):
     set_random_seed(42)
-
-    graph, default_oncogenes = _load_graph_data()
-    seed_genes = _normalize_seed_genes(request.seed_genes, default_oncogenes)
-    seed_genes_in_graph = [gene for gene in seed_genes if gene in graph.nodes()]
-
-    if not seed_genes_in_graph:
-        raise HTTPException(status_code=400, detail="None of the provided seed genes were found in the graph.")
-
-    if len(seed_genes_in_graph) < 2:
-        raise HTTPException(status_code=400, detail="At least two seed genes found in the graph are required.")
-
-    rwr_score = calculate_rwr_proximity(
-        graph,
-        seed_genes,
-        restart_probability=request.restart_probability,
-        num_steps=request.num_steps,
+    _update_result(
+        run_id,
+        status="running",
+        message="Analysis is running",
+        error_message=None,
     )
-    random_scores = random_rwr_distribution(
-        graph,
-        seed_genes,
-        num_samples=request.num_random_sets,
-        restart_probability=request.restart_probability,
-        num_steps=request.num_steps,
-    )
-    p_value = calculate_rwr_p_value(rwr_score, random_scores)
 
-    ranked_genes = rank_candidate_genes(
-        graph,
-        seed_genes,
-        restart_probability=request.restart_probability,
-        num_steps=request.num_steps,
-        top_n=request.top_n,
-    )
-    top_genes = [
-        CandidateGene(gene_name=gene_name, score=score, rank=index)
-        for index, (gene_name, score) in enumerate(ranked_genes, start=1)
-    ]
+    try:
+        graph, _ = _load_graph_data()
 
-    return AnalysisResultResponse(
-        run_id=run_id,
-        status="completed",
-        seed_genes=seed_genes_in_graph,
-        rwr_score=rwr_score,
-        p_value=p_value,
-        top_genes=top_genes,
-        message="Analysis completed successfully",
-    )
+        rwr_score = calculate_rwr_proximity(
+            graph,
+            seed_genes,
+            restart_probability=request.restart_probability,
+            num_steps=request.num_steps,
+        )
+        random_scores = random_rwr_distribution(
+            graph,
+            seed_genes,
+            num_samples=request.num_random_sets,
+            restart_probability=request.restart_probability,
+            num_steps=request.num_steps,
+        )
+        p_value = calculate_rwr_p_value(rwr_score, random_scores)
+
+        ranked_genes = rank_candidate_genes(
+            graph,
+            seed_genes,
+            restart_probability=request.restart_probability,
+            num_steps=request.num_steps,
+            top_n=request.top_n,
+        )
+        top_genes = [
+            _dump_model(CandidateGene(gene_name=gene_name, score=score, rank=index))
+            for index, (gene_name, score) in enumerate(ranked_genes, start=1)
+        ]
+
+        _update_result(
+            run_id,
+            status="completed",
+            seed_genes=seed_genes,
+            rwr_score=rwr_score,
+            p_value=p_value,
+            top_genes=top_genes,
+            message="Analysis completed successfully",
+            error_message=None,
+            completed_at=_utc_now_isoformat(),
+        )
+    except Exception as exc:
+        _update_result(
+            run_id,
+            status="failed",
+            message="Analysis failed",
+            error_message=str(exc),
+            completed_at=_utc_now_isoformat(),
+        )
 
 
 @router.get("/")
@@ -119,57 +152,57 @@ def graph_summary():
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-def analyze(request: AnalyzeRequest):
+def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks):
     run_id = str(uuid4())
+
+    graph, default_oncogenes = _load_graph_data()
+    normalized_seed_genes = _normalize_seed_genes(request.seed_genes, default_oncogenes)
+    seed_genes_in_graph = [gene for gene in normalized_seed_genes if gene in graph.nodes()]
+
+    if not seed_genes_in_graph:
+        raise HTTPException(status_code=400, detail="None of the provided seed genes were found in the graph.")
+
+    if len(seed_genes_in_graph) < 2:
+        raise HTTPException(status_code=400, detail="At least two seed genes found in the graph are required.")
 
     running_result = AnalysisResultResponse(
         run_id=run_id,
         status="running",
-        seed_genes=[],
+        seed_genes=seed_genes_in_graph,
         rwr_score=None,
         p_value=None,
         top_genes=[],
         message="Analysis is running",
+        error_message=None,
+        created_at=_utc_now_isoformat(),
+        completed_at=None,
     )
-    ANALYSIS_RESULTS[run_id] = _dump_model(running_result)
+    _set_result(run_id, _dump_model(running_result))
 
-    try:
-        result = run_analysis(run_id, request)
-        ANALYSIS_RESULTS[run_id] = _dump_model(result)
-        return AnalyzeResponse(
-            run_id=run_id,
-            status="completed",
-            message="Analysis completed successfully",
-        )
-    except HTTPException as exc:
-        failed_result = AnalysisResultResponse(
-            run_id=run_id,
-            status="failed",
-            seed_genes=[],
-            rwr_score=None,
-            p_value=None,
-            top_genes=[],
-            message=str(exc.detail),
-        )
-        ANALYSIS_RESULTS[run_id] = _dump_model(failed_result)
-        raise exc
-    except Exception as exc:
-        failed_result = AnalysisResultResponse(
-            run_id=run_id,
-            status="failed",
-            seed_genes=[],
-            rwr_score=None,
-            p_value=None,
-            top_genes=[],
-            message=f"Analysis failed: {exc}",
-        )
-        ANALYSIS_RESULTS[run_id] = _dump_model(failed_result)
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}") from exc
+    background_tasks.add_task(run_analysis_background, run_id, request, seed_genes_in_graph)
+
+    return AnalyzeResponse(
+        run_id=run_id,
+        status="running",
+        message="Analysis started",
+    )
+
+
+@router.get("/status/{run_id}", response_model=AnalyzeResponse)
+def get_status(run_id: str):
+    result = _get_result(run_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Run ID not found.")
+    return AnalyzeResponse(
+        run_id=run_id,
+        status=result["status"],
+        message=result["message"],
+    )
 
 
 @router.get("/results/{run_id}", response_model=AnalysisResultResponse)
 def get_results(run_id: str):
-    result = ANALYSIS_RESULTS.get(run_id)
+    result = _get_result(run_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Run ID not found.")
     return AnalysisResultResponse(**result)
@@ -177,7 +210,9 @@ def get_results(run_id: str):
 
 @router.get("/genes/top-candidates/{run_id}", response_model=list[CandidateGene])
 def get_top_candidates(run_id: str):
-    result = ANALYSIS_RESULTS.get(run_id)
+    result = _get_result(run_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Run ID not found.")
+    if result["status"] != "completed":
+        raise HTTPException(status_code=400, detail="Analysis is not completed yet.")
     return [CandidateGene(**gene) for gene in result.get("top_genes", [])]

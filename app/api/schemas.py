@@ -37,3 +37,6 @@ class AnalysisResultResponse(BaseModel):
     p_value: float | None = None
     top_genes: list[CandidateGene] = Field(default_factory=list)
     message: str
+    error_message: str | None = None
+    created_at: str | None = None
+    completed_at: str | None = None
