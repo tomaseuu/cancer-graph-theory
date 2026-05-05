@@ -158,6 +158,43 @@ Docker Compose runs the API and local Postgres.
 Results persist across `docker compose down` because of the Postgres volume.
 `docker compose down -v` deletes the local database volume.
 
+## Frontend Dashboard
+Start backend:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Start frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+If the backend runs somewhere else, create:
+
+```text
+frontend/.env.local
+```
+
+with:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+```
+
+The dashboard includes preset analysis configurations so users can test RWR-only mode, ML ranking mode, custom seed genes, and local or global diffusion settings without manually filling the form.
+Results include a bar chart of top candidate genes, and ML mode can optionally display score breakdowns when those fields are available.
+The dashboard also includes a plain-English interpretation summary explaining the RWR score, p-value, top candidate gene, and the exploratory nature of the results.
+
 ## Database Persistence
 Without `DATABASE_URL`, the app uses in-memory storage.
 With `DATABASE_URL`, the app saves analysis runs and candidate genes.

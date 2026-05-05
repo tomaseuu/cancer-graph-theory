@@ -37,6 +37,9 @@ INTERACTIONS_FILE = DATA_DIR / "interacting_proteins.txt"
 
 ANALYSIS_RESULTS: dict[str, dict] = {}
 ANALYSIS_RESULTS_LOCK = Lock()
+RUNNING_MESSAGE = "Running graph diffusion and candidate gene ranking..."
+COMPLETED_MESSAGE = "Analysis completed successfully."
+FAILED_MESSAGE = "Analysis failed. Try a smaller configuration."
 
 
 def _load_graph_data():
@@ -96,8 +99,10 @@ def _format_rwr_candidates(ranked_genes):
     ]
 
 
-def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: list[str]):
-    set_random_seed(42)
+def _mark_analysis_failed(run_id: str, error: Exception):
+    error_message = str(error)
+    print(f"Analysis failed for {run_id}... {error_message}")
+
     if DATABASE_ENABLED:
         db = _get_db_session()
         if db is None:
@@ -106,54 +111,9 @@ def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: li
             update_analysis_run_status(
                 db,
                 run_id,
-                status="running",
-                message="Analysis is running",
-                error_message=None,
-            )
-
-            graph, _ = _load_graph_data()
-
-            rwr_score = calculate_rwr_proximity(
-                graph,
-                seed_genes,
-                restart_probability=request.restart_probability,
-                num_steps=request.num_steps,
-            )
-            random_scores = random_rwr_distribution(
-                graph,
-                seed_genes,
-                num_samples=request.num_random_sets,
-                restart_probability=request.restart_probability,
-                num_steps=request.num_steps,
-            )
-            p_value = calculate_rwr_p_value(rwr_score, random_scores)
-
-            if request.use_ml_ranking:
-                top_genes = rank_candidate_genes_with_ml(
-                    graph,
-                    seed_genes,
-                    restart_probability=request.restart_probability,
-                    num_steps=request.num_steps,
-                    top_n=request.top_n,
-                )
-            else:
-                ranked_genes = rank_candidate_genes(
-                    graph,
-                    seed_genes,
-                    restart_probability=request.restart_probability,
-                    num_steps=request.num_steps,
-                    top_n=request.top_n,
-                )
-                top_genes = _format_rwr_candidates(ranked_genes)
-
-            complete_analysis_run(db, run_id, rwr_score, p_value, top_genes)
-        except Exception as exc:
-            update_analysis_run_status(
-                db,
-                run_id,
                 status="failed",
-                message="Analysis failed",
-                error_message=str(exc),
+                message=FAILED_MESSAGE,
+                error_message=error_message,
             )
         finally:
             db.close()
@@ -161,12 +121,84 @@ def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: li
 
     _update_result(
         run_id,
-        status="running",
-        message="Analysis is running",
-        error_message=None,
+        status="failed",
+        message=FAILED_MESSAGE,
+        error_message=error_message,
+        completed_at=_utc_now_isoformat(),
     )
 
+
+def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: list[str]):
+    set_random_seed(42)
     try:
+        print(f"Starting analysis for {run_id}...")
+
+        if DATABASE_ENABLED:
+            db = _get_db_session()
+            if db is None:
+                raise RuntimeError("Database session could not be created.")
+            try:
+                update_analysis_run_status(
+                    db,
+                    run_id,
+                    status="running",
+                    message=RUNNING_MESSAGE,
+                    error_message=None,
+                )
+
+                graph, _ = _load_graph_data()
+
+                rwr_score = calculate_rwr_proximity(
+                    graph,
+                    seed_genes,
+                    restart_probability=request.restart_probability,
+                    num_steps=request.num_steps,
+                )
+                print("Finished RWR proximity")
+
+                random_scores = random_rwr_distribution(
+                    graph,
+                    seed_genes,
+                    num_samples=request.num_random_sets,
+                    restart_probability=request.restart_probability,
+                    num_steps=request.num_steps,
+                )
+                print("Finished random distribution")
+
+                p_value = calculate_rwr_p_value(rwr_score, random_scores)
+
+                if request.use_ml_ranking:
+                    top_genes = rank_candidate_genes_with_ml(
+                        graph,
+                        seed_genes,
+                        restart_probability=request.restart_probability,
+                        num_steps=request.num_steps,
+                        top_n=request.top_n,
+                    )
+                else:
+                    ranked_genes = rank_candidate_genes(
+                        graph,
+                        seed_genes,
+                        restart_probability=request.restart_probability,
+                        num_steps=request.num_steps,
+                        top_n=request.top_n,
+                    )
+                    top_genes = _format_rwr_candidates(ranked_genes)
+                print("Finished candidate ranking")
+
+                complete_analysis_run(db, run_id, rwr_score, p_value, top_genes)
+                print(f"Completed analysis for {run_id}...")
+            finally:
+                db.close()
+            return
+
+        _update_result(
+            run_id,
+            status="running",
+            message=RUNNING_MESSAGE,
+            error_message=None,
+        )
+
         graph, _ = _load_graph_data()
 
         rwr_score = calculate_rwr_proximity(
@@ -175,6 +207,8 @@ def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: li
             restart_probability=request.restart_probability,
             num_steps=request.num_steps,
         )
+        print("Finished RWR proximity")
+
         random_scores = random_rwr_distribution(
             graph,
             seed_genes,
@@ -182,6 +216,8 @@ def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: li
             restart_probability=request.restart_probability,
             num_steps=request.num_steps,
         )
+        print("Finished random distribution")
+
         p_value = calculate_rwr_p_value(rwr_score, random_scores)
 
         if request.use_ml_ranking:
@@ -201,6 +237,7 @@ def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: li
                 top_n=request.top_n,
             )
             top_genes = _format_rwr_candidates(ranked_genes)
+        print("Finished candidate ranking")
 
         _update_result(
             run_id,
@@ -209,18 +246,17 @@ def run_analysis_background(run_id: str, request: AnalyzeRequest, seed_genes: li
             rwr_score=rwr_score,
             p_value=p_value,
             top_genes=top_genes,
-            message="Analysis completed successfully",
+            message=COMPLETED_MESSAGE,
             error_message=None,
             completed_at=_utc_now_isoformat(),
         )
+        print(f"Completed analysis for {run_id}...")
     except Exception as exc:
-        _update_result(
-            run_id,
-            status="failed",
-            message="Analysis failed",
-            error_message=str(exc),
-            completed_at=_utc_now_isoformat(),
-        )
+        try:
+            _mark_analysis_failed(run_id, exc)
+        except Exception as update_error:
+            print(f"Analysis failed for {run_id}... {exc}")
+            print(f"Failed to persist error state for {run_id}... {update_error}")
 
 
 @router.get("/")
@@ -278,7 +314,7 @@ def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks):
             rwr_score=None,
             p_value=None,
             top_genes=[],
-            message="Analysis is running",
+            message=RUNNING_MESSAGE,
             error_message=None,
             created_at=_utc_now_isoformat(),
             completed_at=None,

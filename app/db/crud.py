@@ -15,7 +15,7 @@ def create_analysis_run(db, run_id, request, seed_genes):
         num_random_sets=request.num_random_sets,
         rwr_score=None,
         p_value=None,
-        message="Analysis is running",
+        message="Running graph diffusion and candidate gene ranking...",
         error_message=None,
         created_at=datetime.utcnow(),
         completed_at=None,
@@ -51,7 +51,7 @@ def complete_analysis_run(db, run_id, rwr_score, p_value, top_genes):
     analysis_run.status = "completed"
     analysis_run.rwr_score = rwr_score
     analysis_run.p_value = p_value
-    analysis_run.message = "Analysis completed successfully"
+    analysis_run.message = "Analysis completed successfully."
     analysis_run.error_message = None
     analysis_run.completed_at = datetime.utcnow()
     analysis_run.candidate_genes.clear()
