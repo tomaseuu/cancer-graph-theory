@@ -143,3 +143,25 @@ Get top genes:
 ```bash
 curl http://localhost:8000/genes/top-candidates/YOUR_RUN_ID
 ```
+
+## Database Persistence
+
+By default, the API can run without a database using in-memory storage.
+
+To enable PostgreSQL persistence, create a `.env` file:
+
+```env
+DATABASE_URL=postgresql://oncograph_user:oncograph_password@localhost:5432/oncograph
+```
+
+Then start the API:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+When `DATABASE_URL` is configured, analysis runs and candidate genes are saved to PostgreSQL.
+This makes run IDs survive server restarts.
+Supabase can also be used by setting `DATABASE_URL` to the Supabase Postgres connection string.
+
+Do not commit a real `.env` file.
