@@ -1,121 +1,96 @@
-# Cancer and Graph Theory
+# OncoGraph: Graph-Based Cancer Gene Discovery Pipeline
 
-This project explores how rare gene mutations in cancer can still matter, even if they don’t show up often across patients. Instead of only looking at how often a gene is mutated, I used **graph theory** to see how these genes are connected in a **protein–protein interaction network**. The main idea is that even “rare” mutations might still be close to important cancer genes, meaning they could still play a big role in tumor development.
+## Overview
+OncoGraph is a backend-focused bioinformatics pipeline that uses protein-protein interaction networks, graph diffusion, statistical validation, and optional graph-based machine learning to prioritize candidate cancer-associated genes from known oncogene seed sets.
 
-This project was inspired by a 2015 study published in *Nature Genetics* that used a graph diffusion method to find hidden cancer driver genes. I wanted to recreate a smaller version of that idea — to see if I could find meaningful connections between known oncogenes using Python and graph algorithms.
+The project combines NetworkX-based graph analysis, Random Walk with Restart (RWR), background API processing, optional scikit-learn ranking, and PostgreSQL-backed persistence behind a FastAPI service. The goal is to turn a graph theory research prototype into a more production-style backend/data/ML project that can run locally or in Docker.
 
----
+This project is for educational and research exploration only. It is not intended for clinical diagnosis, treatment decisions, or medical decision-making.
 
-## Current Refactor Status
-- The original analysis has been refactored into modular Python files.
-- The project can still be run with `python run_pipeline.py`.
-- FastAPI and optional database persistence are now available.
-- Docker support is now available.
+## Why This Project Matters
+Rare mutations may still matter if they are close to important cancer genes in a biological network.
 
----
+Frequency-only mutation analysis can miss genes that are biologically connected to known cancer drivers but do not appear often across patients. Graph algorithms help surface those functional relationships by looking at how genes interact inside a protein network rather than only how often they are altered.
 
-## Dataset
-- Known kidney cancer oncogenes: `data/onco_genes.txt`  
-- Protein–protein interactions: `data/interacting_proteins.txt`
+OncoGraph explores that idea computationally by combining network proximity, statistical comparison against random baselines, and optional ML-based ranking.
 
-Each protein is treated as a **node**, and every interaction between two proteins is an **edge** in the graph.
+## Tech Stack
+**Backend**
+- FastAPI
+- Uvicorn
+- Pydantic
 
----
+**Data / Bioinformatics**
+- Python
+- NetworkX
+- NumPy
+- SciPy
+- pandas
 
-## Objectives
-- Build a **graph** from the protein interaction data using NetworkX.  
-- Measure **average shortest paths** between oncogenes and compare them to random gene sets.  
-- Run **Random Walk with Restart (RWR)** to see how mutation effects spread across the network.  
-- Test how **edge weights** and **restart probabilities (γ)** change diffusion behavior.  
-- Predict **new tumor-related genes** based on their proximity to known oncogenes.  
-- Check significance using **randomized graphs** and **p-values**.
+**ML**
+- scikit-learn
+- Logistic Regression
+- graph feature engineering
 
----
+**Database**
+- PostgreSQL
+- SQLAlchemy
+- Supabase-ready persistence
 
-## Tools & Libraries
-- **Python 3**
-- **NetworkX** – graph modeling and random walks  
-- **NumPy** – matrix operations and random sampling  
-- **SciPy** – stats and correlation tests  
-- **Matplotlib** – histograms and graph visualizations  
-- **Random** – reproducible simulations
+**DevOps**
+- Docker
+- Docker Compose
 
----
+**Visualization**
+- Matplotlib
 
-## Key Findings
-- The average shortest path between oncogenes was **5.667**, not significantly closer than random sets (p = 0.401).  
-- The Random Walk with Restart (RWR) analysis showed **oncogenes are much more connected** than random genes (p = 0.0030).  
-- Randomizing the network removed that pattern (p = 0.3890), showing the **real network structure matters**.  
-- Predicted **30 possible new tumor-related genes** based on proximity scores.  
-- Edge weights and restart probability clearly affected how the walk spread — higher weights pulled the walk toward specific nodes, while lower weights pushed it away.
+## Features
+- Builds a protein-protein interaction graph from gene interaction data.
+- Runs shortest-path analysis between known oncogenes.
+- Runs Random Walk with Restart to measure network proximity.
+- Compares oncogene proximity against random gene sets.
+- Computes p-values for statistical validation.
+- Ranks top candidate cancer-associated genes.
+- Optional ML ranking using graph features.
+- FastAPI endpoints for analysis and result retrieval.
+- Background processing for long-running graph simulations.
+- PostgreSQL persistence for analysis runs and candidate genes.
+- Docker Compose setup with local Postgres.
 
----
-
-## Project Report
-For full explanations, figures, and math steps, see:  
-📄 [Cancer and Graph Theory.pdf](https://github.com/user-attachments/files/22854158/Cancer.and.Graph.Theory.pdf)
-
----
-
-## Author
-**Thomas Le**  
-Student in Computer Science & Bioinformatics
-
----
-### ⚠️ Note
-By the way, this project takes a while to run since it performs **thousands of random walk simulations** and **graph randomization steps** (each with up to 100,000 iterations). If you just want to test it quickly, you can lower the sample size and step count in the code:
-```python
-samples = 200        # instead of 1000
-num_steps = 10000    # instead of 100000
+## System Architecture
+```mermaid
+flowchart TD
+    A[Client / curl / API Docs] --> B[FastAPI Backend]
+    B --> C[Background Analysis Task]
+    C --> D[Protein Interaction Graph]
+    D --> E[Random Walk with Restart]
+    D --> F[Graph Feature Engineering]
+    F --> G[scikit-learn ML Ranker]
+    E --> H[Candidate Gene Ranking]
+    G --> H
+    H --> I[(PostgreSQL / Supabase)]
+    B --> I
+    B --> J[JSON API Results]
 ```
 
-Run the current refactored pipeline with:
+## API Endpoints
+- `GET /`: Basic service banner confirming the API is running.
+- `GET /health`: Lightweight health check for local or containerized deployment.
+- `GET /graph/summary`: Returns graph size and seed-gene coverage in the interaction network.
+- `POST /analyze`: Starts a background cancer gene analysis run and returns a `run_id`.
+- `GET /status/{run_id}`: Returns the current run status (`running`, `completed`, or `failed`).
+- `GET /results/{run_id}`: Returns the full analysis result, including scores and ranked genes.
+- `GET /genes/top-candidates/{run_id}`: Returns only the top candidate genes for a completed run.
+
+## Example API Usage
+Start the API locally:
 
 ```bash
-python run_pipeline.py
-```
-
-## Running the API
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Start the API:
-
-```bash
+python3 -m pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Open docs:
-
-```text
-http://localhost:8000/docs
-```
-
-Example request:
-
-`POST /analyze`
-
-```json
-{
-  "restart_probability": 0.3,
-  "num_steps": 10000,
-  "num_random_sets": 200,
-  "top_n": 30,
-  "use_ml_ranking": false
-}
-```
-
-`POST /analyze` now starts a background analysis and returns immediately.
-Poll `GET /status/{run_id}` or `GET /results/{run_id}` to track progress.
-Top candidate genes are only available after the run status is `completed`.
-
-Example flow:
-
-Start analysis:
+Start an analysis:
 
 ```bash
 curl -X POST http://localhost:8000/analyze \
@@ -124,7 +99,8 @@ curl -X POST http://localhost:8000/analyze \
     "restart_probability": 0.3,
     "num_steps": 1000,
     "num_random_sets": 20,
-    "top_n": 10
+    "top_n": 10,
+    "use_ml_ranking": false
   }'
 ```
 
@@ -140,47 +116,7 @@ Get results:
 curl http://localhost:8000/results/YOUR_RUN_ID
 ```
 
-Get top genes:
-
-```bash
-curl http://localhost:8000/genes/top-candidates/YOUR_RUN_ID
-```
-
-## Database Persistence
-
-By default, the API can run without a database using in-memory storage.
-
-To enable PostgreSQL persistence, create a `.env` file:
-
-```env
-DATABASE_URL=postgresql://oncograph_user:oncograph_password@localhost:5432/oncograph
-```
-
-Then start the API:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-When `DATABASE_URL` is configured, analysis runs and candidate genes are saved to PostgreSQL.
-This makes run IDs survive server restarts.
-Supabase can also be used by setting `DATABASE_URL` to the Supabase Postgres connection string.
-
-Do not commit a real `.env` file.
-
-If you already created Step 4 tables in an existing development database, drop and recreate them or use a fresh database before testing Step 5. `create_all()` will not add the new ML columns to existing tables.
-
-## Graph-Based ML Ranking
-
-The original pipeline uses Random Walk with Restart for candidate ranking.
-Optional ML ranking adds graph features such as PageRank, centrality, shortest-path distance, and oncogene-neighbor count.
-
-A Logistic Regression model is trained using known oncogenes as positive examples and sampled non-oncogenes as negative examples.
-The final score combines normalized RWR score and ML probability.
-
-This is exploratory and educational, not medical diagnosis.
-
-Example ML request:
+Use ML ranking:
 
 ```bash
 curl -X POST http://localhost:8000/analyze \
@@ -195,46 +131,18 @@ curl -X POST http://localhost:8000/analyze \
 ```
 
 ## Running with Docker
-
-Copy the Docker env example:
-
 ```bash
 cp .env.docker.example .env
-```
-
-Build and start:
-
-```bash
 docker compose up --build
 ```
 
-Open API docs:
+Open:
 
 ```text
 http://localhost:8000/docs
 ```
 
-Test health:
-
-```bash
-curl http://localhost:8000/health
-```
-
-Start analysis:
-
-```bash
-curl -X POST http://localhost:8000/analyze \
-  -H "Content-Type: application/json" \
-  -d '{
-    "restart_probability": 0.3,
-    "num_steps": 1000,
-    "num_random_sets": 20,
-    "top_n": 10,
-    "use_ml_ranking": false
-  }'
-```
-
-Stop containers:
+Stop:
 
 ```bash
 docker compose down
@@ -246,14 +154,87 @@ Reset local database:
 docker compose down -v
 ```
 
-`.env` is ignored and should not be committed.
-`.env.docker.example` is safe to commit.
-Docker Compose uses local Postgres by default.
-Supabase can still be used locally by replacing `DATABASE_URL` in `.env`.
+Docker Compose runs the API and local Postgres.
+Results persist across `docker compose down` because of the Postgres volume.
+`docker compose down -v` deletes the local database volume.
 
-Local non-Docker mode still works:
+## Database Persistence
+Without `DATABASE_URL`, the app uses in-memory storage.
+With `DATABASE_URL`, the app saves analysis runs and candidate genes.
 
-```bash
-python3 -m pip install -r requirements.txt
-uvicorn app.main:app --reload
+Local Docker uses Postgres by default.
+Supabase can be used by setting `DATABASE_URL` to a Supabase Postgres connection string.
+
+Do not commit `.env`.
+
+During development, if you already created older tables before the ML candidate fields were added, use a fresh database or drop and recreate the tables. The current setup uses `create_all()` and does not include migrations yet.
+
+## Graph-Based ML Ranking
+Optional mode is activated with `"use_ml_ranking": true`.
+
+The ML ranking layer computes these graph features for each gene:
+- RWR score
+- degree
+- PageRank
+- betweenness centrality
+- closeness centrality
+- shortest path to nearest seed gene
+- oncogene neighbor count
+
+It trains a Logistic Regression model using known oncogenes as positive examples and sampled non-oncogenes as negative examples.
+The final ranking combines normalized RWR score and ML probability into a single score.
+
+This ML layer is exploratory and educational. It is not a clinical model.
+
+## Example Results
+Sample graph summary from current testing:
+- `9,039` nodes
+- `24,350` edges
+- `7` oncogenes found in graph
+
+Sample top candidates from RWR-only mode:
+- `CAMLG`
+- `TNFRSF13B`
+- `COL1A2`
+- `MLLT1`
+- `COL5A1`
+
+These results may vary slightly depending on simulation settings and random sampling.
+
+## Project Structure
+```text
+app/
+  api/
+  core/
+  db/
+  utils/
+data/
+outputs/
+tests/
+Dockerfile
+docker-compose.yml
+run_pipeline.py
 ```
+
+## Limitations
+- Uses a small curated seed gene list.
+- Results depend on the quality and completeness of the interaction network.
+- Random Walk simulations can vary slightly.
+- ML labels are simplified because seed oncogenes are treated as positive examples.
+- Not intended for medical use.
+
+This project is for educational and research exploration only. It is not intended for clinical diagnosis, treatment decisions, or medical decision-making.
+
+## Future Improvements
+- Add Alembic migrations.
+- Add a React or Next.js dashboard.
+- Add authentication for saved runs.
+- Add larger cancer gene databases.
+- Add real benchmark labels from cancer genomics datasets.
+- Add an async task queue with Celery or RQ for heavier runs.
+- Add deployment instructions for cloud hosting.
+
+## Resume Highlights
+- Built a FastAPI-based bioinformatics backend that runs Random Walk with Restart on protein-protein interaction networks to rank candidate cancer-associated genes.
+- Engineered graph-based ML features including PageRank, centrality, shortest-path distance, and RWR proximity to improve candidate gene ranking with scikit-learn.
+- Added PostgreSQL persistence, background processing, and Docker Compose support for reproducible long-running analysis workflows.
